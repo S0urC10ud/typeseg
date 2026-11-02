@@ -42,7 +42,7 @@ The security benchmark uses **165 text files from MalwareBazaar**, a public malw
 
 The [security evaluation code](https://github.com/S0urC10ud/semantic-text-segmentation/blob/main/evaluation/malwarebazaar_finetune_eval.py#L29) groups labels into **15 categories**, including XML/SVG and JSON/YAML. These scores use different files and label groups from the general benchmark. General U-Net reaches **69.85% dense F1** here; U-Net-Sec, trained on a separate 1,400-file security dataset, reaches **88.02%** (Table 4).
 
-**The public package and demo include the general models.** U-Net-Sec and Mamba-Sec are the paper’s separate models with additional security training.
+**General remains the package and demo default.** Optional Security models are available through `model_set="security"`, `--model-set security`, or the demo’s visible model selector. They specialize in mixed scripts and encodings and can be less accurate on ordinary languages. The currently packaged Security checkpoints differ from the paper’s U-Net-Sec and Mamba-Sec models reported below.
 
 ### Finding embedded scripts and encodings
 

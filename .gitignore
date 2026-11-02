@@ -18,6 +18,7 @@ scripts/*
 # Build + verification helpers shipped with the public repo
 !scripts/export_typeseg_weights.py
 !scripts/export_typeseg_onnx.py
+!scripts/export_security_models.py
 !scripts/export_unet_weights.py
 !scripts/verify_typeseg_backend.py
 !scripts/verify_unet.py
@@ -42,6 +43,8 @@ active_learning/benchmark_results/**
 checkpoints/**
 !checkpoints/unet_al.msgpack
 !checkpoints/mamba_al.msgpack
+!checkpoints/unet_sec.msgpack
+!checkpoints/mamba_sec.msgpack
 confusion_images/**
 start_stuff.md
 uv.lock

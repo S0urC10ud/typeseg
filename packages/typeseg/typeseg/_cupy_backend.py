@@ -13,7 +13,7 @@ follows the same contract as ``_onnx_backend``: ``numpy`` forces it off,
 """
 from __future__ import annotations
 
-import json
+import io
 import warnings
 from functools import lru_cache
 from typing import Optional
@@ -22,6 +22,7 @@ import numpy as np
 
 from ._mamba_kernel import mamba_forward as _kernel_forward
 from ._onnx_backend import _mode, _require_gpu
+from ._profiles import manifest as _manifest, verify_asset
 
 try:  # Python 3.9+
     from importlib.resources import files as _files
@@ -31,11 +32,6 @@ except ImportError:  # pragma: no cover
 
 def _data(name: str):
     return _files("typeseg") / "data" / name
-
-
-@lru_cache(maxsize=1)
-def _manifest() -> dict:
-    return json.loads(_data("manifest.json").read_text())
 
 
 def _import_cupy():
@@ -163,7 +159,7 @@ def _warn_compile_fail_once(exc: Exception) -> None:
     )
 
 
-def available() -> bool:
+def available(name: str = "mamba_al.npz") -> bool:
     """True if the CuPy GPU Mamba path should be used.
 
     Auto mode: True when cupy imports, a CUDA device is present, AND CuPy can
@@ -179,7 +175,7 @@ def available() -> bool:
     try:
         if not _has_device():
             raise RuntimeError("no CUDA device visible to CuPy")
-        if not _data("mamba_al.npz").is_file():
+        if not _data(name).is_file():
             raise RuntimeError("bundled Mamba weights are missing")
         stage = "compile"
         ok, perr = _probe_compile()
@@ -199,12 +195,13 @@ def available() -> bool:
     return True
 
 
-@lru_cache(maxsize=1)
-def _weights_gpu():
+@lru_cache(maxsize=2)
+def _weights_gpu(name: str = "mamba_al.npz"):
     """Load the slimmed Mamba weights and push them onto the GPU once."""
     cp = _import_cupy()
-    with _data(_manifest()["mamba"]["file"]).open("rb") as fh:
-        data = np.load(fh)
+    blob = _data(name).read_bytes()
+    verify_asset(name, blob)
+    with np.load(io.BytesIO(blob)) as data:
         flat = {k.replace("__", "/"): cp.asarray(np.asarray(data[k], dtype=np.float32))
                 for k in data.files}
     return flat
@@ -220,21 +217,21 @@ def device_name() -> str:
         return "cuda"
 
 
-def active_providers() -> list:
-    if not available():
+def active_providers(name: str = "mamba_al.npz") -> list:
+    if not available(name):
         return []
     return [f"CuPyCUDA:{device_name()}"]
 
 
-def mamba_logits(tokens: np.ndarray) -> np.ndarray:
+def mamba_logits(tokens: np.ndarray, *, name: str = "mamba_al.npz", config: Optional[dict] = None) -> np.ndarray:
     """tokens: (T,) raw byte ids -> logits (T, num_classes) as a host ndarray.
 
     Runs the parallel selective-scan on the GPU. Raw (non-compacted) tokens: the
     kernel applies the compact remap internally, matching the numpy path exactly.
     """
     cp = _import_cupy()
-    cfg = _manifest()["mamba"]
-    w = _weights_gpu()
+    cfg = config or _manifest()["mamba"]
+    w = _weights_gpu(name)
     tok = cp.asarray(np.asarray(tokens, dtype=np.int64))
     logits = _kernel_forward(
         cp, w, tok,

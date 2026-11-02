@@ -13,7 +13,7 @@ class MambaSegmentor {
     this.dt_rank = m.dt_rank;
     this.d_conv = m.d_conv;
     this.bidirectional = m.bidirectional;
-    this.layer_norm_eps = 1e-5;
+    this.layer_norm_eps = m.layer_norm_eps ?? 1e-5;
     
     // Unpack weights
     this.embed = weights["embed/embedding"]; // (vocab, d_model)

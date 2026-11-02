@@ -84,6 +84,8 @@ def main(argv=None):
                     help="fast = U-Net (CNN), precise = Mamba (SSM); default precise")
     ap.add_argument("--demo", action="store_true",
                     help="segment a built-in mixed / prompt-injection sample")
+    ap.add_argument("--model-set", choices=["general", "security"], default="general",
+                    help="general (default) or security-tuned weights")
     args = ap.parse_args(argv)
 
     if args.demo:
@@ -95,10 +97,10 @@ def main(argv=None):
         text = sys.stdin.read()
 
     fn = fast if args.model == "fast" else precise
-    result = fn(text)
-    info = backend_info()
+    result = fn(text, model_set=args.model_set)
+    info = backend_info(model_set=args.model_set)
 
-    print(f"\n{BOLD}typeseg.{args.model}{RESET}  "
+    print(f"\n{BOLD}typeseg.{args.model} [{args.model_set}]{RESET}  "
           f"{DIM}backend={info['backend']} gpu={info['gpu']}  "
           f"{len(text)} chars  {len(result.segments)} segments{RESET}\n")
 

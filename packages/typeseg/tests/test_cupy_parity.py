@@ -51,3 +51,14 @@ def test_cupy_matches_numpy(n):
     if ref.size:
         assert int((ref.argmax(-1) != got.argmax(-1)).sum()) == 0
         assert float(np.max(np.abs(ref - got))) < 1e-3
+
+
+def test_profile_switch_gpu_preserves_general_predictions():
+    import typeseg
+    text='s = Chr(65) & Chr(66)\n'
+    assert typeseg.backend_info()['precise_gpu']
+    general=typeseg.precise(text)
+    security=typeseg.precise(text,model_set='security')
+    restored=typeseg.precise(text)
+    np.testing.assert_array_equal(general.char_probs,restored.char_probs)
+    assert not np.array_equal(general.char_probs,security.char_probs)

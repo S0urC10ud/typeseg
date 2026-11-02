@@ -44,6 +44,20 @@ for seg in result.segments:
 #   35-46   javascript_typescript  0.87
 ```
 
+### Security models
+
+General remains the default. For mixed scripts and encoded payloads, select the
+security specialist explicitly:
+
+```python
+typeseg.fast(text, model_set="security")     # U-Net-Sec
+typeseg.precise(text, model_set="security")  # Mamba-Sec
+```
+
+The CLI accepts `--model-set security`; the browser has a visible model selector.
+Security can be less accurate on ordinary languages. Use
+`Options.security(...)` to customize its confidence/whitespace/minimum-run decoder.
+
 Installing the package also gives you a `typeseg` command (alias `segcat`) that
 renders a file — tinted by content type, with a legend and a per-segment
 confidence table — straight in the terminal, no Python REPL needed:
@@ -222,6 +236,7 @@ checkpoints and are not checked in. From the repository root:
 ```bash
 python scripts/export_typeseg_weights.py   # checkpoints -> data/*.npz + manifest.json
 python scripts/export_typeseg_onnx.py      # data/*.npz   -> data/*.onnx
+python scripts/export_security_models.py  # frozen security checkpoints -> package + browser assets
 python -m build packages/typeseg   # or: uv build packages/typeseg
 ```
 

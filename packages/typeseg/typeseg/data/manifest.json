@@ -65,5 +65,70 @@
     "other_threshold": 0.3,
     "min_run_chars": 3,
     "boundary_snap_max_shift": 2
+  },
+  "model_sets": {
+    "security": {
+      "id": "security-format-20261101",
+      "decoder": "security-canonical-v1",
+      "defaults": {
+        "other_threshold": 0.3,
+        "min_run_chars": 3,
+        "boundary_snap": false,
+        "paired_delimiter_fill": false
+      },
+      "unet": {
+        "file": "unet_sec_format_20261101.npz",
+        "channels": [
+          32,
+          64,
+          64,
+          128,
+          128,
+          128,
+          128,
+          256
+        ],
+        "window_bytes": 1536,
+        "window_stride": 768,
+        "onnx": "unet_sec_format_20261101_context_v2.onnx",
+        "checkpoint_sha256": "12f7cddf8286be865f633a835dcd7f0e2c925d41cf09a5d8af49a001f34ff50f",
+        "id": "unet_sec_format_20261101",
+        "dtype": "float32",
+        "num_token_embeddings": 130,
+        "d_model": 256,
+        "inference_policy": "research-context-v2",
+        "full_context_max_bytes": 200000,
+        "pad_bucket_bytes": 256,
+        "sha256": {
+          "npz": "a4d6f08f71e23a47b31851120dc0222fd033fcc8412a76b0df45337c7f16bd60",
+          "onnx": "8a844610b9df0c424ef55264bfde67e8d77727cdef46838c2e18a9be96e82092"
+        }
+      },
+      "mamba": {
+        "file": "mamba_sec_format_20261101.npz",
+        "n_layers": 6,
+        "d_state": 16,
+        "dt_rank": 16,
+        "d_conv": 4,
+        "onnx": "mamba_sec_format_20261101_context_v2.onnx",
+        "checkpoint_sha256": "aab2662e09e05278a1f42e4a77e0636a1dee46e5be50090759a97449a8bf506f",
+        "id": "mamba_sec_format_20261101",
+        "dtype": "float32",
+        "num_token_embeddings": 130,
+        "d_model": 256,
+        "inference_policy": "research-context-v2",
+        "full_context_max_bytes": 200000,
+        "pad_bucket_bytes": 1024,
+        "expand": 1,
+        "bidirectional": true,
+        "window_bytes": 10000,
+        "window_stride": 5000,
+        "variant": "Bidirectional Mamba1D, Mamba-1-style selective SSM, 6 layers, d_model=256, d_state=16, expand=1, dt_rank=16, d_conv=4",
+        "sha256": {
+          "npz": "383b166165c159b593b7809553e9089303e010e22f5813dccfcab99b8fbd286a",
+          "onnx": "80d293a1b80e42dc5002c6d6bbdbbe0e784283a92db9799d26a54dd47dde43da"
+        }
+      }
+    }
   }
 }

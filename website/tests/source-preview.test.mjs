@@ -1,6 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { regions, sampleText, totalBytes, buildSourceLines } from '../src/lib/composition-example.mjs';
+import { regions, sampleText, sampleSha, totalBytes, buildSourceLines } from '../src/lib/composition-example.mjs';
+
+test('overview uses the approved shortened MalwareBazaar excerpt with nested types',()=>{
+  assert.equal(sampleSha,'626f2311154e7a07136f4d8d45fa218a359874d0d805c22c52544385bbd1290d');
+  assert.ok(sampleText.length<500);
+  assert.ok(sampleText.includes('set "VmxRfZ=::PKCS7;'));
+  assert.ok(sampleText.includes('!VmxRfZ!!VzgZGP!!VqSyhZ!!VnPUJq!'));
+  assert.deepEqual([...new Set(regions.map(r=>r.label))],['Batch','PowerShell','Base64','Omitted']);
+  for(const region of regions.filter(r=>r.label==='Base64'))assert.match(region.text,/^[A-Za-z0-9+/=]+$/);
+});
 
 test('composition widths and byte ranges match the source exactly', () => {
   assert.match(sampleText, /^[\x00-\x7f]*$/);

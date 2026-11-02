@@ -14,6 +14,8 @@
 .char.is-selected-region{outline:1px solid var(--accent);filter:brightness(.85)}
 .demo-status{margin:0;padding:.3rem 1.5rem;font-size:.8rem;color:var(--subtle)}
 .demo-status[data-mode="error"]{color:#b42318}
+.model-choice{display:flex;flex-direction:column;gap:4px;max-width:100%}
+.model-choice select{font:inherit;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text);max-width:100%}
 :root{
   --bg: #f7f9fc;
   --panel: #ffffff;

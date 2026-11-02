@@ -26,11 +26,11 @@ except (ImportError, PackageNotFoundError):  # not installed / running from sour
     __version__ = "0.0.0"
 
 
-def fast(text: str, options: Optional[Options] = None) -> Segmentation:
+def fast(text: str, options: Optional[Options] = None, *, model_set: str = "general") -> Segmentation:
     """Fast, piecewise-constant segmentation using the U-Net model."""
-    return _run("fast", text, options)
+    return _run("fast", text, options, model_set=model_set)
 
 
-def precise(text: str, options: Optional[Options] = None) -> Segmentation:
+def precise(text: str, options: Optional[Options] = None, *, model_set: str = "general") -> Segmentation:
     """Higher-quality, long-context segmentation using the Mamba model."""
-    return _run("precise", text, options)
+    return _run("precise", text, options, model_set=model_set)

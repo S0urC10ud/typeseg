@@ -15,7 +15,9 @@ Start with **U-Net for bulk processing or CPU speed**. **Mamba can improve label
 
 The **CLI and browser demo default to Mamba**. Use `typeseg --model fast file.txt` or choose U-Net in the demo’s Settings for faster inspection. Python calls choose the model explicitly through `fast()` or `precise()`.
 
-Both models in the public package are **general-domain checkpoints**. The paper’s U-Net-Sec and Mamba-Sec results come from separate models trained with security-domain adaptation.
+**General** remains the default model set. Select the **Security** specialist with `model_set="security"` in Python, `--model-set security` in the CLI, or **U-Net-Sec / Mamba-Sec** in the demo’s visible model selector. It specializes in mixed scripts and encodings and can be less accurate on ordinary languages. These checkpoints differ from the paper’s security models.
+
+Security Mamba is the custom bidirectional **Mamba1D**, a Mamba-1-style selective SSM with six layers, `d_model=256`, `d_state=16`, `expand=1`, `dt_rank=16`, `d_conv=4`, 130 compact embeddings and 35 classes. Portable inference uses FP32.
 
 ## Supported content types
 

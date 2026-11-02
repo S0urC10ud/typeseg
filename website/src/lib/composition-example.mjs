@@ -1,33 +1,32 @@
-// ASCII example with illustrative annotations; ranges match the visible source.
+// Shortened, annotated excerpt. Offsets refer to the displayed excerpt only.
+export const sampleSha = '626f2311154e7a07136f4d8d45fa218a359874d0d805c22c52544385bbd1290d';
+const types = {
+  Batch: { color: '#3976c5', detail: 'Batch assignment syntax and delayed variable expansion.' },
+  PowerShell: { color: '#8655c9', detail: 'A piece of PowerShell stored inside a batch variable.' },
+  Base64: { color: '#b84f87', detail: 'A fragment of the encoded key within the PowerShell string.' },
+  Omitted: { color: '#7d8896', detail: 'An ellipsis marks source omitted for display; this is not a content type.' },
+};
 const chunks = [
-  { label: 'Python', color: '#3976c5', detail: 'The surrounding Python script.', text:
-`import base64
-from pathlib import Path
-
-# A text file can carry several languages.
-sample_name = "inspection-demo"
-
-powershell_source = """
-` },
-  { label: 'PowerShell', color: '#8655c9', detail: 'An embedded PowerShell region to inspect.', text:
-`$files = Get-ChildItem -Path . -File
-$files | Select-Object Name, Length
-Write-Output "Inspection complete"
-` },
-  { label: 'Python', color: '#3976c5', detail: 'Python delimiters and a second string.', text:
-`"""
-
-# The encoded text below is a harmless example.
-encoded_note = "` },
-  { label: 'Base64', color: '#b84f87', detail: 'A visible encoding for a downstream decoder.', text:
-'VGhpcyBpcyBhIGhhcm1sZXNzIGV4YW1wbGUgZm9yIGNvbnRlbnQtdHlwZSBzZWdtZW50YXRpb24u' },
-  { label: 'Python', color: '#3976c5', detail: 'The surrounding script continues.', text:
-`"
-
-decoded_note = base64.b64decode(encoded_note).decode("utf-8")
-print(sample_name, decoded_note)
-` },
-];
+  ['Batch', 'set "VmxRfZ='],
+  ['PowerShell', '::PKCS7; $nARvf.Key=[Syst'],
+  ['Batch', '"\nset "VzgZGP='],
+  ['PowerShell', "em.Convert]::FromBase64String('"],
+  ['Base64', '3lg'],
+  ['Batch', '"\nset "VqSyhZ='],
+  ['Base64', 'PRfefMk'],
+  ['Omitted', '...'],
+  ['Base64', 'JaLNmV'],
+  ['Batch', '"\nset "VnPUJq='],
+  ['Base64', 'VBqbwycQkIDPxsvE='],
+  ['PowerShell', "'); $nAR"],
+  ['Batch', '"\n'],
+  ['Omitted', '...'],
+  ['Batch', '\nset "CkBNy='],
+  ['Omitted', '...'],
+  ['Batch', '!VmxRfZ!!VzgZGP!!VqSyhZ!!VnPUJq!'],
+  ['Omitted', '...'],
+  ['Batch', '"\n'],
+].map(([label, text]) => ({ ...types[label], label, text }));
 
 let offset = 0;
 export const regions = chunks.map(chunk => {

@@ -24,6 +24,8 @@ typeseg --model precise file.txt
 
 `typeseg file.txt` also uses Mamba: **`precise` is the CLI default**. U-Net is selected explicitly with `--model fast`.
 
+Select the Security specialist with `--model-set security`, for example `typeseg --model fast --model-set security sample.txt`. The default model set is `general`.
+
 ## Read from standard input
 
 Omit the filename to read piped text:

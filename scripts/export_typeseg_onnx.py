@@ -92,7 +92,7 @@ def groupnorm(g: GB, x: str, scale: np.ndarray, bias: np.ndarray, C: int, L: int
               groups: int = 8, eps: float = 1e-5) -> str:
     """x: [N, C, L] -> normalised [N, C, L]; reduce over (in-group ch, L) per group."""
     cpg = C // groups
-    shp = g.const(np.array([0, groups, cpg, L], dtype=np.int64), "gn_shape")
+    shp = g.const(np.array([0, groups, cpg, -1], dtype=np.int64), "gn_shape")
     xr = g.node("Reshape", [x, shp], stem="gn_r")  # [N, g, cpg, L]
     mean = g.node("ReduceMean", [xr], stem="gn_mean", axes=[2, 3], keepdims=1)
     xc = g.node("Sub", [xr, mean], stem="gn_xc")
@@ -102,7 +102,7 @@ def groupnorm(g: GB, x: str, scale: np.ndarray, bias: np.ndarray, C: int, L: int
     vare = g.node("Add", [var, epsc], stem="gn_vare")
     std = g.node("Sqrt", [vare], stem="gn_std")
     norm = g.node("Div", [xc, std], stem="gn_norm")
-    back = g.const(np.array([0, C, L], dtype=np.int64), "gn_back")
+    back = g.const(np.array([0, C, -1], dtype=np.int64), "gn_back")
     nr = g.node("Reshape", [norm, back], stem="gn_nr")  # [N, C, L]
     sc = g.const(scale.reshape(1, C, 1), "gn_scale")
     bi = g.const(bias.reshape(1, C, 1), "gn_bias")
@@ -126,7 +126,7 @@ def dense(g: GB, x: str, kernel: np.ndarray, bias: np.ndarray, stem="dense") -> 
 # --------------------------------------------------------------------------
 # U-Net
 # --------------------------------------------------------------------------
-def build_unet(w: dict, channels, num_classes: int, seq: int = 1536) -> onnx.ModelProto:
+def build_unet(w: dict, channels, num_classes: int, seq: int | None = 1536) -> onnx.ModelProto:
     g = GB()
     cb = [0]
 
@@ -146,7 +146,9 @@ def build_unet(w: dict, channels, num_classes: int, seq: int = 1536) -> onnx.Mod
     emb = g.node("Gather", [emb_w, ids], stem="emb", axis=0)        # [N,L,256]
     x = g.node("Transpose", [emb], stem="x0", perm=[0, 2, 1])        # [N,256,L]
 
-    lengths = [seq >> i for i in range(len(channels))]               # 1536..12
+    # Dynamic models require the caller to PAD to a multiple of 128, so every
+    # down/up level has matching lengths without changing the learned network.
+    lengths = [seq >> i if seq is not None else None for i in range(len(channels))]
     in_ch = w["Embed_0/embedding"].shape[1]
     skips = []
     cur = in_ch
@@ -176,12 +178,13 @@ def build_unet(w: dict, channels, num_classes: int, seq: int = 1536) -> onnx.Mod
     head = g.node("Conv", [x, HW, HB], stem="head", kernel_shape=[1], pads=[0, 0], strides=[1], group=1)
     logits = g.node("Transpose", [head], outs=["logits"], perm=[0, 2, 1])  # [N,L,cls]
 
-    inp = helper.make_tensor_value_info("ids", TensorProto.INT64, ["N", seq])
-    out = helper.make_tensor_value_info("logits", TensorProto.FLOAT, ["N", seq, num_classes])
+    dimension = seq if seq is not None else "L"
+    inp = helper.make_tensor_value_info("ids", TensorProto.INT64, ["N", dimension])
+    out = helper.make_tensor_value_info("logits", TensorProto.FLOAT, ["N", dimension, num_classes])
     graph = helper.make_graph(g.nodes, "typeseg_unet", [inp], [out], g.inits)
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", OPSET)],
                               ir_version=9)
-    model.doc_string = "typeseg U-Net (fixed 1536 window, dynamic batch)"
+    model.doc_string = "typeseg U-Net (dynamic batch; " + ("dynamic length, PAD to multiple of128)" if seq is None else "fixed1536 window)")
     onnx.checker.check_model(model)
     return model
 

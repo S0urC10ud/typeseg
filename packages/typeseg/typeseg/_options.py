@@ -33,3 +33,10 @@ class Options:
     boundary_snap: bool = True
     paired_delimiter_fill: bool = True
     min_run_normalize: bool = True
+
+    @classmethod
+    def security(cls, **overrides) -> "Options":
+        """Research-style security defaults; explicit overrides remain possible."""
+        values = {"boundary_snap": False, "paired_delimiter_fill": False}
+        values.update(overrides)
+        return cls(**values)

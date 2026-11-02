@@ -31,6 +31,8 @@ for segment in result.segments:
 
 Use `typeseg.precise(text)` for Mamba’s full-file context. Both functions return the same result type, so you can compare them without changing downstream code.
 
+For the Security models, use `typeseg.fast(text, model_set="security")` or `typeseg.precise(text, model_set="security")`. General remains the default for ordinary content.
+
 ## Build a file-composition view
 
 Preserve segment order. Draw each region with width proportional to `segment.end - segment.start`, and use a consistent color for each label. Link each region to the corresponding source range.

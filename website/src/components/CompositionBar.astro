@@ -1,5 +1,5 @@
 ---
-import { regions, sampleText, totalBytes, buildSourceLines } from '../lib/composition-example.mjs';
+import { regions, sampleText, sampleSha, totalBytes, buildSourceLines } from '../lib/composition-example.mjs';
 const lines = buildSourceLines(sampleText, regions);
 const format = (value: number) => value.toLocaleString('en-US');
 const labelColor = (hex: string) => {
@@ -12,7 +12,7 @@ const labelColor = (hex: string) => {
 };
 ---
 <figure class="composition-example" data-default-region={regions.findIndex(region => region.label === 'PowerShell')}>
-  <div class="composition-heading"><strong>One file. Several content types.</strong><span>Illustrative ASCII file · {format(totalBytes)} bytes</span></div>
+  <div class="composition-heading"><strong>PowerShell and Base64 inside a batch script.</strong><span>Shortened excerpt · {format(totalBytes)} shown bytes</span></div>
   <div class="composition-track" aria-label="File composition, in byte order">
     {regions.map((region, index) => <button type="button" class="composition-region"
       style={`--region-color:${region.color};--region-ink:${labelColor(region.color)};flex-grow:${region.end - region.start}`}
@@ -34,13 +34,15 @@ const labelColor = (hex: string) => {
   <div id="composition-source-preview" class="composition-source" aria-hidden="true" inert>
     <div class="composition-source-inner">
       <div class="composition-source-heading"><strong>Inside the file</strong><span>Same bytes, unfolded into lines</span></div>
-      <pre class="composition-code" aria-label="Illustrative source text, marked by content type"><code>{lines.map(line => <span class="composition-code-line"><span class="composition-line-number" aria-hidden="true">{line.number}</span><span class="composition-line-text">{line.parts.length ? line.parts.map(part => <span class="composition-code-region" data-region={part.regionIndex} style={`--region-color:${part.color}`}>{part.text}</span>) : ' '}</span></span>)}</code></pre>
+      <pre class="composition-code" aria-label="Shortened MalwareBazaar source, annotated by content type"><code>{lines.map(line => <span class="composition-code-line"><span class="composition-line-number" aria-hidden="true">{line.number}</span><span class="composition-line-text">{line.parts.length ? line.parts.map(part => <span class="composition-code-region" data-region={part.regionIndex} style={`--region-color:${part.color}`}>{part.text}</span>) : ' '}</span></span>)}</code></pre>
       <div class="composition-legend">
         {[...new Map(regions.map(r => [r.label, r])).values()].map(region => <span><i style={`background:${region.color}`}></i>{region.label}</span>)}
       </div>
     </div>
   </div>
-  <figcaption>Hover across the bar to follow the highlighted text. Byte ranges match this source exactly; labels are illustrative.</figcaption>
+  <figcaption>From MalwareBazaar, ID <code style="overflow-wrap:anywhere">{sampleSha}</code>.
+    Hover to inspect the annotated regions. Ranges refer to this shortened excerpt, not the original file.
+    Gray ellipses mark omissions; these labels are illustrative, not live model predictions.</figcaption>
 </figure>
 <script>
   document.querySelectorAll<HTMLElement>('.composition-example').forEach(example => {

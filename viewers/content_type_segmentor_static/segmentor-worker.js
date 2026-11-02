@@ -7,6 +7,7 @@ importScripts(STATIC_BASE + 'js/mamba.js' + ASSET_VERSION);
 importScripts(STATIC_BASE + 'js/webgpu_matmul.js' + ASSET_VERSION);
 importScripts(STATIC_BASE + 'js/postprocess.js' + ASSET_VERSION);
 importScripts(STATIC_BASE + 'js/unet.js' + ASSET_VERSION);
+importScripts(STATIC_BASE + 'js/security-postprocess.js' + ASSET_VERSION);
 
 const STATE = {
   manifest: null,
@@ -21,6 +22,9 @@ const STATE = {
   unetLoading: null,
   // Current selection
   activeModel: 'mamba',
+  activeSet: 'general',
+  models: new Map(),
+  loading: new Map(),
 };
 
 async function fetchOrThrow(url, type='text') {
@@ -31,7 +35,7 @@ async function fetchOrThrow(url, type='text') {
 
 async function loadManifest() {
   if (STATE.manifest) return STATE.manifest;
-  const manifestStr = await fetchOrThrow(`${STATIC_BASE}assets/model_manifest.json`, 'text');
+  const manifestStr = await fetchOrThrow(`${STATIC_BASE}assets/model_manifest.json${ASSET_VERSION}`, 'text');
   STATE.manifest = JSON.parse(manifestStr);
   return STATE.manifest;
 }
@@ -63,6 +67,40 @@ async function loadMamba() {
   await STATE.mambaLoading;
 }
 
+async function loadSelected(modelName, modelSet) {
+  if (!['unet', 'mamba'].includes(modelName)) throw new Error('Unknown model.');
+  if (!['general', 'security'].includes(modelSet)) throw new Error('Unknown model set.');
+  const manifest = await loadManifest();
+  if (modelSet === 'general') {
+    await (modelName === 'unet' ? loadUNet() : loadMamba());
+    return { model: modelName === 'unet' ? STATE.unetModel : STATE.mambaModel, gpu: STATE.mambaGpu };
+  }
+  const config = manifest.model_sets?.security?.[modelName];
+  if (!config) throw new Error(`Security ${modelName} is unavailable in this build.`);
+  const key = `${modelSet}/${modelName}/${config.id}`;
+  if (STATE.models.has(key)) return STATE.models.get(key);
+  if (!STATE.loading.has(key)) {
+    const pending = (async () => {
+      const buffer = await fetchOrThrow(`${STATIC_BASE}assets/${config.weights}`, 'arrayBuffer');
+      const metaText = await fetchOrThrow(`${STATIC_BASE}assets/${config.metadata}`, 'text');
+      for (const [kind, bytes] of [['bin', buffer], ['metadata', new TextEncoder().encode(metaText)]]) {
+        const actual = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+        if (actual !== config.sha256[kind]) throw new Error(`Security ${kind} checksum mismatch.`);
+      }
+      const metadata = JSON.parse(metaText), weights = {};
+      for (const [name, info] of Object.entries(metadata)) weights[name] = new Float32Array(buffer, info.offset * 4, info.length);
+      const modelManifest = { ...manifest, model: { ...manifest.model, ...config } };
+      const model = modelName === 'unet' ? new UNetSegmentor(modelManifest, weights) : new MambaSegmentor(modelManifest, weights);
+      let gpu = null;
+      if (modelName === 'mamba') { gpu = new WebGPUMatMul(); await gpu.init(); }
+      const value = { model, gpu, config }; STATE.models.set(key, value); return value;
+    })();
+    STATE.loading.set(key, pending);
+  }
+  try { return await STATE.loading.get(key); }
+  finally { STATE.loading.delete(key); }
+}
+
 async function loadUNet() {
   if (STATE.unetLoaded) return;
   if (STATE.unetLoading) return STATE.unetLoading;
@@ -86,17 +124,14 @@ async function loadUNet() {
   await STATE.unetLoading;
 }
 
-async function ensureModelLoaded(modelName) {
-  STATE.activeModel = modelName || 'mamba';
-  if (STATE.activeModel === 'unet') {
-    await loadUNet();
-  } else {
-    await loadMamba();
-  }
+async function ensureModelLoaded(modelName = 'mamba', modelSet = 'general') {
+  await loadSelected(modelName, modelSet);
+  STATE.activeModel = modelName;
+  STATE.activeSet = modelSet;
   const manifest = await loadManifest();
   return {
     loaded: true,
-    model_id: STATE.activeModel === 'unet' ? 'U-Net (CNN)' : 'Mamba (SSM)',
+    model_id: `${modelSet === 'security' ? 'Security' : 'General'} ${modelName === 'unet' ? 'U-Net' : 'Mamba'}`,
     num_classes: manifest.num_classes,
     window_bytes: manifest.window_bytes,
     window_stride_bytes: manifest.window_stride_bytes,
@@ -108,11 +143,16 @@ async function ensureModelLoaded(modelName) {
     display_labels: manifest.display_labels,
     runtime: STATE.activeModel === 'unet' ? 'unet-js' : 'hybrid-webgpu',
     activeModel: STATE.activeModel,
+    model_set: STATE.activeSet,
   };
 }
 
 async function runSegment(payloadObj) {
   const text = payloadObj?.text || '';
+  // The UI preserves source offsets by normalizing to visible ASCII first.
+  // Reject direct unsupported worker input instead of confusing UTF-8 bytes
+  // with JavaScript character offsets.
+  if (/[^\x20-\x7E\n\t]/.test(text)) throw new Error('Normalize input to ASCII before browser segmentation.');
   const threshold = payloadObj?.threshold;
   const ppOptions = payloadObj?.ppOptions || {};
   
@@ -127,6 +167,7 @@ async function runSegment(payloadObj) {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(text);
   const seq = bytes.length;
+  if (seq > manifest.max_input_bytes) throw new Error(`Browser input exceeds ${manifest.max_input_bytes} bytes.`);
   
   const inputArr = new Int32Array(seq);
   for (let i = 0; i < seq; i++) inputArr[i] = bytes[i];
@@ -141,13 +182,19 @@ async function runSegment(payloadObj) {
 
   // Run inference based on active model
   let probs;
-  if (STATE.activeModel === 'unet') {
-    await loadUNet();
-    probs = STATE.unetModel.predict_window_probs(inputArr);
-  } else {
-    await loadMamba();
-    probs = await STATE.mambaModel.predict_window_probs(inputArr, STATE.mambaGpu);
-  }
+  const selected = await loadSelected(STATE.activeModel, STATE.activeSet);
+  if (STATE.activeSet === 'security') {
+    // Demo input is capped at6144 bytes: a single full-context research bucket.
+    // Fixed1536 windows changed GroupNorm statistics and lost security accuracy.
+    let width = STATE.activeModel === 'unet' ? Math.ceil(seq / 256) * 256 : 1024;
+    if (STATE.activeModel === 'mamba') while (width < seq) width *= 2;
+    const padded = new Int32Array(width).fill(256); padded.set(inputArr);
+    const full = STATE.activeModel === 'unet'
+      ? selected.model._predict_single_window(padded)
+      : await selected.model.predict_window_probs(padded, selected.gpu);
+    probs = full.slice(0,seq * manifest.num_classes);
+  } else if (STATE.activeModel === 'unet') probs = selected.model.predict_window_probs(inputArr);
+  else probs = await selected.model.predict_window_probs(inputArr, selected.gpu);
   
   const num_classes = manifest.num_classes;
   const raw_labels = new Int32Array(seq);
@@ -163,7 +210,8 @@ async function runSegment(payloadObj) {
     raw_labels[i] = best_j;
   }
 
-  const ppResult = postprocessCharLabelsTraced(text, raw_labels, probs, {
+  const decoder = STATE.activeSet === 'security' ? securityPostprocessTraced : postprocessCharLabelsTraced;
+  const ppResult = decoder(text, raw_labels, probs, {
     threshold: nextThreshold,
     otherId: num_classes,
     ppOptions: ppOptions
@@ -232,12 +280,14 @@ async function runSegment(payloadObj) {
     char_pp_trace,
     stats,
     input_bytes: seq,
-    window_count: STATE.activeModel === 'unet' ? Math.max(1, Math.ceil((seq - 1536) / 768) + 1) : 1,
+    window_count: STATE.activeModel === 'unet' && STATE.activeSet === 'general' ? Math.max(1, Math.ceil((seq - 1536) / 768) + 1) : 1,
     other_threshold: nextThreshold,
     elapsed_ms: Number((performance.now() - started).toFixed(1)),
     runtime: STATE.activeModel === 'unet' ? 'unet-js' : 'hybrid-webgpu',
-    model_id: STATE.activeModel === 'unet' ? 'U-Net (CNN)' : 'Mamba (SSM)',
+    model_id: `${STATE.activeSet === 'security' ? 'Security' : 'General'} ${STATE.activeModel === 'unet' ? 'U-Net' : 'Mamba'}`,
     activeModel: STATE.activeModel,
+    model_set: STATE.activeSet,
+    model_checkpoint_sha256: selected.config?.checkpoint_sha256 || null,
   };
 }
 
@@ -245,12 +295,12 @@ self.addEventListener('message', async event => {
   const { type, requestId, payload } = event.data || {};
   try {
     if (type === 'load') {
-      const result = await ensureModelLoaded(payload?.model);
+      const result = await ensureModelLoaded(payload?.model, payload?.modelSet);
       self.postMessage({ type: 'result', requestId, payload: result });
       return;
     }
     if (type === 'switch_model') {
-      const result = await ensureModelLoaded(payload?.model);
+      const result = await ensureModelLoaded(payload?.model, payload?.modelSet);
       self.postMessage({ type: 'result', requestId, payload: result });
       return;
     }
