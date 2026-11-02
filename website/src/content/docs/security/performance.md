@@ -73,4 +73,4 @@ The experiment compares taking the predicted substring directly (*raw crop*) wit
 
 These are Table 6 results on the 1,735 eligible references. U-Net-Sec recovers more references; Mamba-Sec produces a larger share of matching candidates. A valid candidate may still be harmless. Effects on threat detection require a separate evaluation.
 
-See [limitations](../../resources/limitations/) for interpretation and [research and citation](../../resources/research/) for publication details. The paper will be available after the conference.
+See [limitations](../../resources/limitations/) for interpretation and [research and citation](../../resources/research/) for publication details.

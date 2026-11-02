@@ -4,9 +4,9 @@ description: The TypeSeg AISec 2026 paper, released artifacts, and citation.
 ---
 **TypeSeg: Content-Type Segmentation for Mixed Text**  
 Martin Dallinger, Yanick Fratantonio, and Luca Invernizzi  
-AISec ’26, The Hague, Netherlands, November 15–19, 2026
+AISec ’26, The Hague, Netherlands, November 15, 2026
 
-The paper will be available after AISec ’26. [Source repository](https://github.com/S0urC10ud/semantic-text-segmentation).
+The paper PDF is not currently hosted here. [Source repository](https://github.com/S0urC10ud/semantic-text-segmentation).
 
 The paper defines character-level textual segmentation and evaluates general text, CPU/GPU throughput, and security-domain adaptation on a human-labeled MalwareBazaar audit. These docs use the paper’s results and distinguish general checkpoints from security-adapted variants.
 
