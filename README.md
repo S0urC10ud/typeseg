@@ -2,6 +2,9 @@
 
 **Fine-grained, character-level content-type segmentation for textual (arbitrarily mangled) inputs.**
 
+Based on research by Martin Dallinger, Yanick Fratantonio, and Luca Invernizzi at Google.
+This is not an officially supported Google product.
+
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/typeseg.svg)](https://pypi.org/project/typeseg/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)

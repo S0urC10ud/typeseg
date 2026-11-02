@@ -7,6 +7,8 @@ import TerminalExample from '../../../components/TerminalExample.astro';
 
 **See which content types are inside a text file, and where.** TypeSeg labels regions of code, markup, data, and encodings across **35 textual content types**. It shows where each type starts and ends, including in mixed or malformed text.
 
+Based on research by Martin Dallinger, Yanick Fratantonio, and Luca Invernizzi at Google. This is not an officially supported Google product.
+
 TypeSeg uses **deep learning sequence modeling** to predict a content type for each character. Its lightweight U-Net and Mamba models have **1.52 million and 1.36 million parameters**, respectively, and run on local hardware. U-Net processes short overlapping sections; Mamba uses context from the whole file. [About the models](../../core-concepts/models-and-content-types/).
 
 **No GPU required.** In our research-runtime benchmarks, U-Net processed **about 292,000 characters per second on an 8-core AMD Ryzen AI 7 350 laptop CPU**. With a consumer-grade **RTX 5070 laptop GPU**, we measured **4.8 million characters per second**—about **4.8 MB/s for ASCII text**. Inference runs locally. [Benchmark setup](../../security/performance/#throughput).
