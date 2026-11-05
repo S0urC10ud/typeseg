@@ -78,6 +78,7 @@ The wheel bundles the general and security models for local CPU inference at
 arbitrary input length. No API key or model download at first use is needed.
 Start on CPU; use `typeseg.fast(text)` for lower latency and
 `typeseg.precise(text)` for long-context segmentation.
+On Intel Macs, use Python 3.9–3.13 for ONNX Runtime compatibility.
 
 For NVIDIA GPU acceleration, follow the
 [CUDA setup guide](packages/typeseg/README.md#running-on-gpu). Both model families

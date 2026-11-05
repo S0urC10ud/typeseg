@@ -32,6 +32,8 @@ The standard install is ready for CPU inference. For NVIDIA GPU acceleration,
 follow the [CUDA setup guide](#running-on-gpu) to enable both model families with
 the same API and model weights.
 
+On Intel Macs, use Python 3.9–3.13 to match the available ONNX Runtime wheels.
+
 ```python
 import typeseg
 

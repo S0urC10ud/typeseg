@@ -57,8 +57,9 @@ packages = ["typeseg"]
 typeseg = ["data/*.npz", "data/*.json", "data/*.onnx"]
 
 [tool.cibuildwheel]
-build = "cp39-* cp312-* cp314-*"
-skip = "*-musllinux*"
+build = "cp39-* cp312-* cp314-* cp313-macosx_x86_64"
+# The Intel macOS ONNX Runtime wheel is available through Python 3.13.
+skip = "*-musllinux* cp314-macosx_x86_64"
 archs = ["native"]
 environment = { TYPESEG_REQUIRE_NATIVE = "1", TYPESEG_BACKEND = "cpu" }
 manylinux-x86_64-image = "manylinux_2_28"

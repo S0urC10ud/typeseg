@@ -13,7 +13,8 @@ optional setup with the same model weights and Python API.
    manual dispatch. It builds a source distribution and native wheels for
    Windows x86-64, manylinux x86-64, and macOS Intel and Apple Silicon.
 3. Check all jobs. Wheel builds require the native extension, audit the stable
-   ABI, and test clean installations on Python 3.9, 3.12 and 3.14. Verify the
+   ABI, and test clean installations on Python 3.9, 3.12 and 3.14 (3.13 instead
+   of 3.14 on Intel Macs, matching ONNX Runtime's wheels). Verify the
    extension loads, parity checks pass, and the ONNX scan still works without
    the extension. `TYPESEG_REQUIRE_NATIVE=1` also enables strict builds locally.
 4. Download artifacts from that exact commit. Run `twine check --strict` and
