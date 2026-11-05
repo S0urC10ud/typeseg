@@ -9,42 +9,30 @@ import numpy as np
 
 
 def visual_whitespace(text: str, labels: np.ndarray) -> np.ndarray:
-    visual = set(" \t\r\n")
-    result = np.asarray(labels).copy()
+    original = np.asarray(labels)
+    result = original.copy()
     n = len(text)
-    same_left = np.full(n, -1, dtype=int)
-    same_right = np.full(n, -1, dtype=int)
-    starts = [0] + [i + 1 for i, ch in enumerate(text) if ch == "\n" and i + 1 < n]
-    for start, end in zip(starts, starts[1:] + [n]):
-        last = -1
-        for i in range(start, end):
-            if text[i] not in visual:
-                last = i
-            same_left[i] = last
-        last = -1
-        for i in range(end - 1, start - 1, -1):
-            if text[i] not in visual:
-                last = i
-            same_right[i] = last
-    left, right = np.full(n, -1, dtype=int), np.full(n, -1, dtype=int)
-    last = -1
-    for i, ch in enumerate(text):
-        if ch not in visual:
-            last = i
-        left[i] = last
-    last = -1
-    for i in range(n - 1, -1, -1):
-        if text[i] not in visual:
-            last = i
-        right[i] = last
-    for i, ch in enumerate(text):
-        if ch in visual:
-            candidates = [v for v in (same_left[i], same_right[i]) if v >= 0]
-            if not candidates:
-                candidates = [v for v in (left[i], right[i]) if v >= 0]
-            if candidates:
-                source = min(candidates, key=lambda v: (abs(i - v), v > i))
-                result[i] = labels[source]
+    if not n:
+        return result
+    # UTF-32 keeps one element per Python character, including lone surrogates.
+    chars = np.frombuffer(text.encode("utf-32-le", "surrogatepass"), dtype="<u4")
+    visible = (chars != 32) & (chars != 9) & (chars != 13) & (chars != 10)
+    if visible.all() or not visible.any():
+        return result
+    positions = np.arange(n)
+    left = np.maximum.accumulate(np.where(visible, positions, -1))
+    right = np.minimum.accumulate(np.where(visible, positions, n)[::-1])[::-1]
+    newline = chars == 10
+    lines = np.cumsum(newline) - newline  # A newline belongs to its preceding line.
+    same_left = (left >= 0) & (lines[np.maximum(left, 0)] == lines)
+    same_right = (right < n) & (lines[np.minimum(right, n - 1)] == lines)
+    local = same_left | same_right
+    left = np.where(local & ~same_left, -1, left)
+    right = np.where(local & ~same_right, n, right)
+    prefer_left = (left >= 0) & ((right == n) | (positions - left <= right - positions))
+    sources = np.where(prefer_left, left, right)
+    take = ~visible & (sources >= 0) & (sources < n)
+    result[take] = original[sources[take]]
     return result
 
 

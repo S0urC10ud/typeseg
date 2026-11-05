@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import io
-import platform
-import warnings
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
@@ -33,36 +31,6 @@ except ImportError:  # pragma: no cover
     from importlib_resources import files as _files  # type: ignore
 
 DEFAULT_CHUNK = 1536
-
-_warned_no_gpu = False
-
-
-def _maybe_warn_no_gpu() -> None:
-    """On macOS, warn once that GPU backends are unavailable (CPU/ONNX only).
-
-    Wheel installs run no install-time hook, so we cannot print during
-    ``pip install``; this is the first runtime opportunity to tell a Mac user why
-    ``typeseg[gpu]`` resolved to the plain CPU package. Only fires in auto mode —
-    an explicit ``TYPESEG_BACKEND`` (numpy forced, or gpu/cuda fail-fast) is the
-    user's own choice and is left to the backend to honour. Suppressible via the
-    standard ``warnings`` filters or ``TYPESEG_BACKEND=numpy``.
-    """
-    global _warned_no_gpu
-    if _warned_no_gpu or platform.system() != "Darwin":
-        return
-    if ob._mode():  # explicit backend choice — don't second-guess it
-        _warned_no_gpu = True
-        return
-    _warned_no_gpu = True
-    warnings.warn(
-        "typeseg: running on CPU (ONNX). GPU backends are unavailable on macOS — "
-        "neither onnxruntime-gpu nor cupy-cuda12x publishes macOS wheels and Apple "
-        "has no NVIDIA CUDA, so 'typeseg[gpu]' installs the same CPU package. "
-        "This is expected; the CPU ONNX backend is fast. Silence this warning with "
-        "TYPESEG_BACKEND=numpy or Python's warnings filters.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
 
 
 @lru_cache(maxsize=4)
@@ -263,7 +231,6 @@ def run(model: str, text: str, options: Optional[Options], *, model_set="general
     cfg = model_config("unet" if model == "fast" else "mamba", model_set)
     if options is None:
         options = Options.security() if model_set == "security" else Options()
-    _maybe_warn_no_gpu()
     if not text:
         return _empty(text)
     byte_tokens = text_to_bytes(text)
@@ -278,37 +245,48 @@ def run(model: str, text: str, options: Optional[Options], *, model_set="general
     return _assemble(text, byte_probs, options, model_set)
 
 
-def backend_info(*, model_set="general") -> dict:
+def backend_info(*, model_set="general", model=None) -> dict:
     """Report the active inference backend (for diagnostics).
 
     Providers reflect what each model's session *actually loaded* — a CUDA provider
     that fails to initialise (and falls back to CPU) is reported as CPU. ``fast``
     (U-Net) may run on CUDA while ``precise`` (Mamba) stays on CPU, because the
-    Mamba selective-scan is slower on GPU than CPU.
+    ONNX Mamba selective-scan is slower on GPU than CPU. ``precise_scan`` reports
+    whether the loaded Mamba path uses the native CPU scan, ONNX scan, or CuPy.
+    Pass ``model="fast"`` or ``model="precise"`` to inspect only that model.
+    This avoids loading the unused model when reporting a single CLI result.
     """
+    if model not in (None, "fast", "precise"):
+        raise ValueError("model must be 'fast', 'precise', or None")
     # fast() = U-Net (ONNX, CUDA-capable). precise() = Mamba: CuPy GPU > ONNX CPU > numpy.
     selected = profile(model_set)
     u, m = selected.get("unet"), selected.get("mamba")
     unet_onnx = u.get("onnx", "unet_al.onnx") if u else None
     mamba_onnx = m.get("onnx", "mamba_al.onnx") if m else None
-    fast_p = ob.active_providers(unet_onnx) if u and ob.available(unet_onnx) else []
+    fast_p = ob.active_providers(unet_onnx) if model != "precise" and u and ob.available(unet_onnx) else []
     backend = "onnx" if fast_p else "numpy"
     try:
-        cupy_on = bool(m and cub.available(m["file"]))
+        cupy_on = bool(model != "fast" and m and cub.available(m["file"]))
     except Exception:
         cupy_on = False
     if cupy_on:
         precise_p = cub.active_providers(m["file"])
-    elif m and ob.available(mamba_onnx):
+    elif model != "fast" and m and ob.available(mamba_onnx):
         precise_p = ob.active_providers(mamba_onnx)
     else:
         precise_p = []
+    if model == "precise":
+        backend = "cupy" if cupy_on else "onnx" if precise_p else "numpy"
+    precise_scan = None
+    if model != "fast" and m:
+        precise_scan = "cupy-cuda" if cupy_on else ob.scan_backend(mamba_onnx) if precise_p else "numpy"
     return {
         "backend": backend,
         "gpu": ("CUDAExecutionProvider" in fast_p) or cupy_on,
         "fast_providers": fast_p,
         "precise_providers": precise_p,
         "precise_gpu": cupy_on,
+        "precise_scan": precise_scan,
         "model_set": model_set,
         "fast_model": u["file"] if u else None,
         "precise_model": m["file"] if m else None,

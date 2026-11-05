@@ -80,6 +80,28 @@ def test_visual_whitespace_prefers_same_line_and_left_ties():
     np.testing.assert_array_equal(result,[1,1,2,2,2,3,3])
 
 
+def test_visual_whitespace_matches_nearest_visible_character_policy():
+    rng = np.random.default_rng(615)
+    alphabet = list("ab \t\r\n\f\v") + ["é", "😀", "\ud800"]
+    for length in range(150):
+        text = ''.join(rng.choice(alphabet, length))
+        labels = rng.integers(0, 35, length)
+        expected = labels.copy()
+        visible = [i for i, ch in enumerate(text) if ch not in " \t\r\n"]
+        for i, ch in enumerate(text):
+            if ch not in " \t\r\n" or not visible:
+                continue
+            start = text.rfind('\n', 0, i) + 1
+            end = text.find('\n', i)
+            if end < 0:
+                end = length
+            candidates = [j for j in visible if start <= j < end] or visible
+            expected[i] = labels[min(candidates, key=lambda j: (abs(i - j), j > i))]
+        original = labels.copy()
+        np.testing.assert_array_equal(visual_whitespace(text, labels), expected)
+        np.testing.assert_array_equal(labels, original)
+
+
 def test_fast_run_merging_matches_original_greedy_policy():
     def slow(labels,minimum):
         out=labels.copy()

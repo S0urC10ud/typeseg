@@ -10,9 +10,10 @@
 `typeseg` labels every character position of a text with one of 35 content types
 (`html`, `css`, `javascript_typescript`, `python`, `powershell`, `encoding_base64`, …),
 recovering the internal structure of mixed, malformed, or convention-breaking inputs.
-Runtime dependencies are just `numpy` and `onnxruntime` — both pulled by `pip install
-typeseg`, so the fast ONNX CPU backend works out of the box at arbitrary input length,
-no GPU required. (A pure-numpy fallback also ships, used when onnxruntime is absent.)
+`pip install typeseg` provides local CPU inference with bundled model weights.
+It needs no API key, separate model download at first use, or training framework.
+Use `fast()` (U-Net) for lower latency, or `precise()` (Mamba) for long-context
+segmentation. Both include a separate security profile.
 
 <p align="center">
   <img src="https://typeseg.martin-dallinger.me/images/llm_segmentation.png" alt="Correct model output on a heavily mangled HTML input with a hidden shell payload" width="460">
@@ -24,9 +25,12 @@ no GPU required. (A pure-numpy fallback also ships, used when onnxruntime is abs
 </p>
 
 ```bash
-pip install typeseg              # CPU: numpy + ONNX Runtime (fast; the default)
-pip install "typeseg[gpu]"       # + CUDA: onnxruntime-gpu (U-Net) and cupy (Mamba scan)
+pip install typeseg
 ```
+
+The standard install is ready for CPU inference. For NVIDIA GPU acceleration,
+follow the [CUDA setup guide](#running-on-gpu) to enable both model families with
+the same API and model weights.
 
 ```python
 import typeseg
@@ -125,59 +129,85 @@ decision from the whole file down to individual character spans. See the
 
 ### Backends
 
-`pip install typeseg` pulls `numpy` and `onnxruntime`, so both models run on the fast
-ONNX CPU backend at **arbitrary input length** out of the box (≈8× faster for the
-U-Net, ≈1.5× for Mamba vs. the pure-numpy loop). The `gpu` extra transparently swaps
-in CUDA backends — the API and output are identical (verified bit-close). A pure-numpy
+`pip install typeseg` installs the CPU runtime for both models at arbitrary input
+length. The GPU setup below enables CUDA backends with the same API and model
+weights. A pure-numpy
 fallback still ships in the box and runs whenever onnxruntime is unavailable or
 `TYPESEG_BACKEND=numpy` is set. Inspect the active backend:
 
 ```python
 import typeseg
-typeseg.backend_info()
-# {'backend': 'onnx', 'gpu': True, 'precise_gpu': True,
-#  'fast_providers': ['CUDAExecutionProvider', 'CPUExecutionProvider'],
-#  'precise_providers': ['CuPyCUDA:NVIDIA GeForce RTX 5070 Laptop GPU']}
+typeseg.backend_info(model="precise")
+# CPU wheel example:
+# {'backend': 'onnx', 'gpu': False, 'precise_scan': 'native-avx512', ...}
 ```
 
-Providers report what each model **actually loaded** — if the CUDA provider fails to
-initialise (missing CUDA/cuDNN libraries) it falls back to CPU and is reported as CPU
-honestly.
+`typeseg --diagnose` prints the selected model's runtime
+as JSON without reading a file or stdin. Add `--model fast` or `--model-set security`
+to inspect another model. It initializes only the selected model's backend.
+`precise_scan` reports `native-avx512`, `native-sse2`, or `native-scalar` when the
+compiled scan is active, and `onnx-scan` when the original, slower ONNX scan is used.
+`cupy-cuda` and `numpy` identify the other Mamba paths.
+
+Providers identify the backend active for each loaded model, including CPU
+fallback when CUDA dependencies are unavailable.
+
+Platform wheels contain the Mamba CPU extension, built ahead of time
+so users do not need a compiler. Source builds need a C++17 compiler for that
+extension; if it is unavailable, the original ONNX scan remains functional but
+Mamba can be substantially slower. A pure-NumPy fallback also ships.
+
+On CPU, Mamba's compiled scan keeps each channel's 16 state values together while
+processing the sequence. Both directions use the same model weights and inference
+windows. ONNX handles the surrounding projections and convolutions. The compiled
+scan uses FP32 arithmetic with a polynomial exponential, so floating-point rounding
+can differ slightly from the original ONNX graph.
+CPUs with AVX-512 process all 16 states together after runtime CPU/OS feature checks.
+Other x86-64 CPUs use SSE2, and other architectures use the scalar kernel.
 
 **Per-model device (auto).** The two models reach the GPU by different routes:
 
-- `fast()` (U-Net) runs on **onnxruntime-gpu** — ~2× faster than CPU end-to-end; ~140k chars/s.
-- `precise()` (Mamba) runs its selective-scan through a **custom CUDA scan kernel**
-  (a CuPy `RawKernel`, `cupy-cuda12x`), reaching ~58k tokens/s for the raw forward —
-  edging out the research model's JAX `associative_scan` (54.9k tok/s). The selective-scan
-  is a first-order linear (associative) recurrence; the stock ONNX `Scan` op evaluates it
-  one timestep per kernel launch and is actually ~4× *slower* on CUDA than CPU. Our kernel
-  instead gives **one GPU thread per inner channel** — each thread holds its own state
-  vector in registers and sweeps the whole sequence in a single launch — so the ONNX Mamba
-  path always stays on CPU and CuPy carries the GPU acceleration instead (~100× over the
-  ONNX `Scan` path). When CuPy/GPU is absent, `precise()` falls back to ONNX (or numpy) on CPU.
+- `fast()` (U-Net) uses **ONNX CUDA**. A bounded cache replays CUDA graphs for repeated
+  window shapes, with stable device buffers and serialized access to each graph.
+  Larger shapes and unsupported captures use ordinary ONNX execution.
+- `precise()` (Mamba) uses a **CuPy CUDA scan kernel**. For the shipped 16-state
+  models, 16 threads cooperate on each channel and retain the original FMA accumulation
+  order. Short sequences and other state dimensions use the original CUDA kernel.
+  The ONNX Mamba path handles CPU inference when CuPy/GPU is unavailable.
 
 Select the backend with the `TYPESEG_BACKEND` environment variable:
 
 | `TYPESEG_BACKEND` | behaviour |
 |---|---|
-| *(unset)* / `onnx` / `cpu` | auto: U-Net on CUDA (onnxruntime) when it loads, Mamba on CuPy CUDA when present; otherwise CPU/numpy |
+| *(unset)* / `onnx` | auto: U-Net on CUDA (onnxruntime) when it loads, Mamba on CuPy CUDA when present; otherwise CPU/numpy |
+| `cpu` | use ONNX CPU for both models; skip CUDA device and kernel checks |
 | `numpy` | force the pure-numpy backend |
 | `gpu` / `cuda` | **require** CUDA for *both* models — no CPU fallback; raise immediately if it cannot initialise |
 
-`gpu`/`cuda` is the "fail fast" mode: rather than silently running on CPU it errors if
-the GPU backends are missing, the CUDA provider is absent, or CUDA fails to load. GPU
-needs `pip install "typeseg[gpu]"` (onnxruntime-gpu for the U-Net, CuPy for the Mamba
-scan) plus CUDA 12.x + cuDNN 9.x on the library path.
+For deployments that require CUDA, set `TYPESEG_BACKEND=gpu` or `cuda` to report
+setup errors immediately. The GPU configuration uses `typeseg[gpu]`
+(onnxruntime-gpu for U-Net, CuPy for Mamba), CUDA 12.8 or newer within the CUDA 12
+series, and cuDNN 9.x on the library path.
 
 #### Running on GPU
 
-Requires an NVIDIA GPU with the CUDA 12.x runtime and cuDNN 9.x. The simplest setup
-pulls the CUDA libraries as pip wheels so nothing has to be installed system-wide:
+CUDA accelerates both U-Net and Mamba and is especially useful for repeated scans
+and larger inputs. Loaded models and compiled kernels are reused across calls.
+The setup below is tested on Linux/WSL2 with an NVIDIA GPU. Native Windows CUDA
+has not yet been validated; macOS uses the CPU backend.
+
+The GPU extra keeps ONNX Runtime 1.20–1.26 and CuPy on a shared CUDA 12 stack.
+Newer default ONNX Runtime GPU builds on PyPI use CUDA 13. Install the GPU runtime
+last as shown below so its CUDA provider takes precedence over the CPU package's
+shared Python module.
+
+The following setup installs CUDA 12.x and cuDNN 9.x libraries as pip wheels for
+an NVIDIA GPU.
 
 ```bash
 # 1. The GPU extra: onnxruntime-gpu (U-Net) + cupy-cuda12x (Mamba scan)
 pip install "typeseg[gpu]"
+pip install --force-reinstall --no-deps "onnxruntime-gpu>=1.20,<1.27"
 
 # 2. CUDA 12 + cuDNN 9 libraries that onnxruntime-gpu needs (CuPy bundles its own).
 #    Skip any you already have system-wide.
@@ -216,7 +246,7 @@ To make GPU mandatory (raise instead of silently using CPU), set
 - `backend_info()` reflects what each model **actually** loaded; if it shows
   `CPUExecutionProvider` for `fast_providers`, a CUDA/cuDNN library failed to load —
   re-check step 2/3 (a common miss is `libcurand.so.10` → `nvidia-curand-cu12`).
-- On Windows use WSL2 for CUDA.
+- On Windows, the tested CUDA route uses WSL2.
 
 Post-processing mirrors the interactive viewer via an `Options` object; every step
 can be tuned or disabled:

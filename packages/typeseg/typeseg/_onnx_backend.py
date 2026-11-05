@@ -10,6 +10,7 @@ here before the session runs. Math is verified bit-close to ``_numpy_backend``.
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from typing import Optional
 
@@ -34,7 +35,7 @@ def _compact_ids(tokens: np.ndarray) -> np.ndarray:
 
 
 def _mode() -> str:
-    """TYPESEG_BACKEND: '' / 'onnx' / 'cpu' (auto), 'numpy' (force numpy),
+    """TYPESEG_BACKEND: '' / 'onnx' (auto), 'cpu' (force CPU), 'numpy' (force numpy),
     'gpu' / 'cuda' (force CUDA, fail fast if it cannot initialise)."""
     return os.environ.get("TYPESEG_BACKEND", "").strip().lower()
 
@@ -46,12 +47,16 @@ def _require_gpu() -> bool:
 def _providers(model: str = "unet"):
     import onnxruntime as ort
 
+    if _mode() == "cpu":
+        return ["CPUExecutionProvider"]
     avail = set(ort.get_available_providers())
     if _require_gpu():
         if "CUDAExecutionProvider" not in avail:
             raise RuntimeError(
                 f"TYPESEG_BACKEND={_mode()} requested but CUDAExecutionProvider is not "
-                "available. Install the GPU backend: pip install \"typeseg[gpu]\"."
+                "available. Install typeseg[gpu], then reinstall the GPU runtime last with "
+                "python -m pip install --force-reinstall --no-deps \"onnxruntime-gpu>=1.20,<1.27\". "
+                "The CPU and GPU runtime distributions share a Python module."
             )
         return ["CUDAExecutionProvider"]  # no CPU fallback -> session creation fails fast
     # Auto: U-Net (conv/matmul) benefits from CUDA, but Mamba's selective scan is
@@ -103,6 +108,11 @@ def active_providers(name: str = "unet_al.onnx") -> list:
     """
     if not available(name):
         return []
+    graphs = sys.modules.get(__package__ + "._cuda_graph")
+    if graphs is not None:
+        providers = graphs.active_providers(name)
+        if providers:
+            return providers
     try:
         return list(_session(name).get_providers())
     except Exception:
@@ -114,6 +124,15 @@ def using_gpu() -> bool:
     return "CUDAExecutionProvider" in active_providers("unet_al.onnx")
 
 
+def scan_backend(name: str) -> str:
+    """Describe the scan in the loaded ONNX Mamba session."""
+    if not _session(name)._typeseg_fused_scan:
+        return "onnx-scan"
+    from . import _scan_cpu
+
+    return "native-" + _scan_cpu.simd
+
+
 @lru_cache(maxsize=4)
 def _session(name: str):
     import onnxruntime as ort
@@ -123,6 +142,18 @@ def _session(name: str):
         blob = fh.read()
     verify_asset(name, blob)
     providers = _providers("mamba" if "mamba" in name else "unet")
+    fused_scan = False
+    if "mamba" in name and providers == ["CPUExecutionProvider"]:
+        try:
+            from . import _scan_cpu
+        except ImportError:
+            pass  # Source installs without a C++ compiler retain the ONNX scan.
+        else:
+            from ._onnx_cpu import fuse_mamba_scans
+
+            blob = fuse_mamba_scans(blob)
+            so.register_custom_ops_library(_scan_cpu.__file__)
+            fused_scan = True
     try:
         sess = ort.InferenceSession(blob, sess_options=so, providers=providers)
     except Exception as exc:
@@ -140,16 +171,25 @@ def _session(name: str):
             f"{sess.get_providers()}. Check CUDA 12.x / cuDNN 9.x install and your GPU's "
             "compute-capability support in this onnxruntime build."
         )
+    sess._typeseg_fused_scan = fused_scan
     return sess
 
 
 def unet_window_logits(token_windows: np.ndarray, batch: int = 64, *, name: str = "unet_al.onnx") -> np.ndarray:
     """token_windows: (N, 1536) raw byte ids -> logits (N, 1536, num_classes)."""
-    sess = _session(name)
     ids = _compact_ids(token_windows)
+    cuda = "CUDAExecutionProvider" in _providers("unet")
     outs = []
     for i in range(0, ids.shape[0], batch):
-        outs.append(sess.run(None, {"ids": ids[i:i + batch]})[0])
+        rows = ids[i:i + batch]
+        logits = None
+        if cuda:
+            from ._cuda_graph import window_logits
+
+            logits = window_logits(rows, name)
+        if logits is None:
+            logits = _session(name).run(None, {"ids": rows})[0]
+        outs.append(logits)
     return np.concatenate(outs, axis=0) if len(outs) > 1 else outs[0]
 
 

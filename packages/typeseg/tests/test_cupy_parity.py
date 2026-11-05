@@ -39,6 +39,25 @@ def _mk(n: int) -> str:
     return s[:n]
 
 
+@pytest.mark.parametrize("n", [1, 127, 128, 257, 4096])
+def test_cooperative_scan_preserves_original_cuda_arithmetic(n):
+    import cupy as cp
+
+    rng = cp.random.RandomState(62)
+    channels = 7
+    u = rng.standard_normal((n, channels), dtype=cp.float32)
+    dt = cp.abs(rng.standard_normal((n, channels), dtype=cp.float32)) * 0.1
+    b = rng.standard_normal((n, 16), dtype=cp.float32)
+    c = rng.standard_normal((n, 16), dtype=cp.float32)
+    a = -cp.abs(rng.standard_normal((channels, 16), dtype=cp.float32))
+    d = rng.standard_normal(channels, dtype=cp.float32)
+    expected = cp.empty_like(u)
+    cub._scan_kernel()((1,), (128,),
+                       (u, dt, b, c, a, d, expected, np.int32(n), np.int32(channels), np.int32(16)))
+    actual = cub._cupy_scan(cp, u, dt, b, c, a, d)
+    np.testing.assert_array_equal(cp.asnumpy(actual), cp.asnumpy(expected))
+
+
 @pytest.mark.parametrize("n", [1, 7, 64, 255, 256, 511, 512, 4095, 4096, 4097, 9000])
 def test_cupy_matches_numpy(n):
     cfg = rt._manifest()["mamba"]

@@ -14,9 +14,12 @@ table with per-segment confidence bars. Uses the numpy or ONNX backend.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import platform
 import sys
 
-from . import backend_info, fast, precise
+from . import __version__, backend_info, fast, precise
 from ._color import (
     BOLD,
     DIM,
@@ -86,7 +89,25 @@ def main(argv=None):
                     help="segment a built-in mixed / prompt-injection sample")
     ap.add_argument("--model-set", choices=["general", "security"], default="general",
                     help="general (default) or security-tuned weights")
+    ap.add_argument("--version", action="version", version=f"typeseg {__version__}")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="report the selected model's runtime as JSON, without reading input")
     args = ap.parse_args(argv)
+
+    if args.diagnose:
+        try:
+            info = backend_info(model_set=args.model_set, model=args.model)
+        except Exception as exc:
+            ap.exit(1, f"typeseg: {exc}\n")
+        print(json.dumps({
+            "version": __version__,
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "model": args.model,
+            "requested_backend": os.environ.get("TYPESEG_BACKEND", "").strip().lower() or "auto",
+            **info,
+        }, indent=2))
+        return
 
     if args.demo:
         text = DEMO
@@ -98,7 +119,7 @@ def main(argv=None):
 
     fn = fast if args.model == "fast" else precise
     result = fn(text, model_set=args.model_set)
-    info = backend_info(model_set=args.model_set)
+    info = backend_info(model_set=args.model_set, model=args.model)
 
     print(f"\n{BOLD}typeseg.{args.model} [{args.model_set}]{RESET}  "
           f"{DIM}backend={info['backend']} gpu={info['gpu']}  "

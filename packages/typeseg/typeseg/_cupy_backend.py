@@ -1,14 +1,12 @@
 """Optional CuPy GPU backend for the Mamba (``precise``) model.
 
-The Mamba selective-scan is a parallel-prefix scan; on GPU it is dramatically
-faster run as ~log2(T) large vectorised steps than as the ONNX ``Scan`` op's
-per-timestep recurrence (which is launch-bound and actually slower on GPU than
-CPU). This backend runs the shared ``_mamba_kernel`` with ``xp=cupy`` and the
-parallel scan, loading the bundled ``mamba_al.npz`` weights onto the device once.
+The shared Mamba forward uses CuPy projections and a fused CUDA selective scan.
+For the shipped 16-state models, each half-warp cooperates on one channel while
+preserving the original accumulation order. Weights are cached on the device.
 
 Used automatically when ``cupy`` imports and a CUDA device is present; otherwise
 the ONNX (CPU) or pure-numpy backend handles ``precise()``. ``TYPESEG_BACKEND``
-follows the same contract as ``_onnx_backend``: ``numpy`` forces it off,
+follows the same contract as ``_onnx_backend``: ``cpu`` / ``numpy`` force it off,
 ``gpu``/``cuda`` force it on and fail fast if CuPy or a device is missing.
 """
 from __future__ import annotations
@@ -76,13 +74,48 @@ void selective_scan(const float* __restrict__ u,
         y[t * di + d] = yt;
     }
 }
+
+// One half-warp per channel spreads the 256 channels over more SMs and keeps
+// each state in a register. Shuffles retain the original sequential FMA sum.
+extern "C" __global__
+void selective_scan16(const float* __restrict__ u,
+                      const float* __restrict__ dt,
+                      const float* __restrict__ B,
+                      const float* __restrict__ C,
+                      const float* __restrict__ A,
+                      const float* __restrict__ D,
+                      float* __restrict__ y,
+                      const int T, const int di) {
+    const int thread = blockIdx.x * blockDim.x + threadIdx.x;
+    const int channel = thread / 16;
+    const int state = thread % 16;
+    if (channel >= di) return;
+    const unsigned mask = __activemask();
+    const float decay_weight = A[channel * 16 + state];
+    const float skip = D[channel];
+    float memory = 0.0f;
+    for (int t = 0; t < T; ++t) {
+        const float step = dt[t * di + channel];
+        const float input = u[t * di + channel];
+        memory = __expf(step * decay_weight) * memory + input * (step * B[t * 16 + state]);
+        const float output_weight = C[t * 16 + state];
+        float output = input * skip;
+        #pragma unroll
+        for (int n = 0; n < 16; ++n) {
+            const float value = __shfl_sync(mask, memory, n, 16);
+            const float weight = __shfl_sync(mask, output_weight, n, 16);
+            output = fmaf(value, weight, output);
+        }
+        if (state == 0) y[t * di + channel] = output;
+    }
+}
 """
 
 
-@lru_cache(maxsize=1)
-def _scan_kernel():
+@lru_cache(maxsize=2)
+def _scan_kernel(name="selective_scan"):
     cp = _import_cupy()
-    return cp.RawKernel(_SCAN_SRC, "selective_scan")
+    return cp.RawKernel(_SCAN_SRC, name)
 
 
 def _cupy_scan(xp, u, dt, B, C, A, D):
@@ -107,6 +140,11 @@ def _cupy_scan(xp, u, dt, B, C, A, D):
     if T == 0:
         return y
     threads = 128
+    if ds == 16 and T >= 128:
+        blocks = (di * 16 + threads - 1) // threads
+        _scan_kernel("selective_scan16")((blocks,), (threads,),
+                    (u, dt, B, C, A, D, y, np.int32(T), np.int32(di)))
+        return y
     blocks = (di + threads - 1) // threads
     _scan_kernel()((blocks,), (threads,),
                    (u, dt, B, C, A, D, y, np.int32(T), np.int32(di), np.int32(ds)))
@@ -166,10 +204,10 @@ def available(name: str = "mamba_al.npz") -> bool:
     actually compile a kernel (headers available). Any of those failing falls back
     to ONNX/numpy (a one-time warning if a device was present but kernels won't
     compile). With ``TYPESEG_BACKEND=gpu``/``cuda`` any failure is a hard error;
-    with ``TYPESEG_BACKEND=numpy`` this is always off.
+    with ``TYPESEG_BACKEND=cpu`` / ``numpy`` this is always off.
     """
     mode = _mode()
-    if mode == "numpy":
+    if mode in ("cpu", "numpy"):
         return False
     stage = "device"
     try:

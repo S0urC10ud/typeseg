@@ -74,13 +74,15 @@ or a Base64 payload pasted into an LLM prompt.
 pip install typeseg              # CPU: numpy + ONNX Runtime (fast; the default)
 ```
 
-The wheel bundles both models and runs them at **arbitrary input length** on the fast ONNX Runtime
-CPU backend out of the box. For CUDA, install the `gpu` extra (identical API and output); `typeseg`
-auto-selects the GPU when one is present:
+The wheel bundles the general and security models for local CPU inference at
+arbitrary input length. No API key or model download at first use is needed.
+Start on CPU; use `typeseg.fast(text)` for lower latency and
+`typeseg.precise(text)` for long-context segmentation.
 
-```bash
-pip install "typeseg[gpu]"       # GPU/CUDA: onnxruntime-gpu (U-Net) + cupy (Mamba scan)
-```
+For NVIDIA GPU acceleration, follow the
+[CUDA setup guide](packages/typeseg/README.md#running-on-gpu). Both model families
+support CUDA with the same API and model weights, making it a useful option for
+repeated scans and larger workloads. The setup is tested on Linux/WSL2.
 
 A pure-numpy fallback still ships in the wheel for environments where onnxruntime is unavailable
 (or with `TYPESEG_BACKEND=numpy`).
@@ -243,19 +245,19 @@ at different rates from the research implementation above. Measured end-to-end, 
 | `fast()` — U-Net | ~75,000 chars/s | ~140,000 chars/s | piecewise-constant; clears the 100k criterion on GPU |
 | `precise()` — Mamba | ~2,000 chars/s | ~25,000–35,000 chars/s | raw model ~58,000 tok/s (see below) |
 
-The two models take different GPU routes (see [Backends](packages/typeseg/README.md#backends)):
-the U-Net runs on **onnxruntime-gpu**, while the Mamba selective-scan runs through a **custom
-CUDA scan kernel** (a CuPy `RawKernel`). The selective-scan is a first-order linear — and therefore
-*associative* — recurrence; the stock ONNX `Scan` op evaluates it one timestep per kernel launch and
-ends up *slower* on GPU than on CPU. Our kernel instead assigns **one GPU thread per inner channel**:
-each thread keeps its own state vector in registers and sweeps the entire sequence in a single launch,
-so the whole forward is one launch of fully parallel work — touching each state element exactly once.
-It reaches **~58,000 tokens/s** for the raw Mamba forward, **edging out the research model's JAX
-`associative_scan`** (54,892 tok/s) and beating the ONNX `Scan` path by **~100×**. End-to-end
-`precise()` is lower because it shares the
-character-level post-processing, which is linear in input length (a few hundred milliseconds on a
-200 KB input). The **first** CUDA call pays a one-time kernel-compilation warmup (seconds, longer on
-brand-new GPU architectures) — keep a process warm for repeated calls.
+The CPU Mamba measurement above uses the original ONNX `Scan` backend. Starting
+with 0.3.1, platform wheels fuse that scan into a compiled CPU kernel and use SIMD
+where supported. The model weights are unchanged.
+
+The GPU figures above describe 0.3.0. Version 0.3.1 uses
+**ONNX CUDA graphs for U-Net** and a **CuPy CUDA scan for Mamba** with
+16 threads cooperating on each channel. The existing model weights and FP32
+arithmetic are retained. CUDA graph buffers are cached by model and input shape,
+with bounded memory and serialized access to shared buffers. See
+[Backends](packages/typeseg/README.md#backends) for setup details.
+
+The first CUDA call includes device initialization and kernel compilation.
+Subsequent calls reuse the loaded models and cached kernels.
 
 ## How it works
 

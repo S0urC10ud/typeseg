@@ -1,0 +1,69 @@
+name: Build TypeSeg Python distributions
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["codex/**"]
+    paths:
+      - "packages/typeseg/**"
+      - ".github/scripts/prepare_typeseg_assets.py"
+      - ".github/workflows/package.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typeseg-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15-intel, macos-15]
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python .github/scripts/prepare_typeseg_assets.py
+      - uses: pypa/cibuildwheel@v4.3.5
+        with:
+          package-dir: packages/typeseg
+          output-dir: wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typeseg-wheel-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 3
+
+  source:
+    name: Source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python .github/scripts/prepare_typeseg_assets.py
+      - run: python -m pip install build twine
+      - run: python -m build --sdist --outdir dist packages/typeseg
+      - run: python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typeseg-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 3
