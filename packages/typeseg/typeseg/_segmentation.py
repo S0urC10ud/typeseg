@@ -5,12 +5,12 @@ from typing import List, Optional
 
 import numpy as np
 
-from ._color import color_enabled, colorize
+from ._color import color_enabled, colorize, terminal_text
 
 
 def _visible(s: str, limit: int = 60) -> str:
     """Make whitespace visible and clamp length for a one-line repr."""
-    s = s.replace("\t", "  ").replace("\r", "").replace("\n", "⏎")
+    s = terminal_text(s).replace("\t", "  ").replace("\n", "⏎")
     return s if len(s) <= limit else s[: limit - 1] + "…"
 
 

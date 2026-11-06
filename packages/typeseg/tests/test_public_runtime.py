@@ -1,6 +1,7 @@
 """Public installs must support predictable CPU selection and useful diagnostics."""
 import json
 import platform
+import re
 import sys
 import warnings
 
@@ -74,3 +75,38 @@ def test_ordinary_mac_cpu_use_does_not_emit_a_missing_gpu_warning(monkeypatch):
         warnings.simplefilter("always")
         typeseg.fast("print('hello')")
     assert not any("GPU backends are unavailable" in str(item.message) for item in emitted)
+
+
+@pytest.mark.parametrize("color_mode", [None, "never", "always"])
+def test_cli_escapes_controls_and_honors_color_settings(monkeypatch, capsys, tmp_path, color_mode):
+    monkeypatch.setenv("TYPESEG_BACKEND", "cpu")
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    if color_mode == "never":
+        monkeypatch.delenv("NO_COLOR", raising=False)
+    else:
+        monkeypatch.setenv("NO_COLOR", "1")
+    if color_mode is None:
+        monkeypatch.delenv("TYPESEG_COLOR", raising=False)
+    else:
+        monkeypatch.setenv("TYPESEG_COLOR", color_mode)
+    text = "x\x1b[31my\x07\x08\x9bz\n"
+    source = tmp_path / "controls.txt"
+    source.write_text(text, encoding="utf-8")
+
+    _cli.main(["--model", "fast", str(source)])
+
+    output = capsys.readouterr().out
+    assert ("\x1b[0m" in output) == (color_mode == "always")
+    plain = re.sub(r"\x1b\[(?:0|1|2|(?:38|48);2;\d+;\d+;\d+)m", "", output)
+    assert all(ch not in plain for ch in ("\x1b", "\x07", "\x08", "\x9b"))
+    for escaped in (r"\x1b", r"\x07", r"\x08", r"\x9b"):
+        assert plain.count(escaped) >= 2  # Both the text body and segment previews.
+    assert f"{len(text)} chars" in plain
+
+
+def test_colored_segment_repr_escapes_controls(monkeypatch):
+    monkeypatch.setenv("TYPESEG_COLOR", "always")
+    segment = typeseg.Segment(0, 5, "text", 1.0, "x\x1b[2J")
+    rendered = repr(segment)
+    assert r"\x1b[2J" in rendered
+    assert "\x1b[2J" not in rendered

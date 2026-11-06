@@ -15,6 +15,19 @@ RESET = "\x1b[0m"
 BOLD = "\x1b[1m"
 DIM = "\x1b[2m"
 
+# Escape C0, DEL and C1 controls while retaining line breaks and indentation.
+_TERMINAL_ESCAPES = {
+    code: f"\\x{code:02x}"
+    for code in (*range(0x20), *range(0x7F, 0xA0))
+    if code not in (ord("\t"), ord("\n"))
+}
+
+
+def terminal_text(text: str) -> str:
+    """Render input controls as visible text rather than terminal commands."""
+    return text.translate(_TERMINAL_ESCAPES)
+
+
 # 24-bit accent colour per label (close to the interactive viewer).
 PALETTE = {
     "html": (231, 76, 60), "css": (46, 204, 113), "javascript_typescript": (190, 200, 40),

@@ -55,6 +55,6 @@ typeseg --help
 
 The output shows the active backend, input length, a content-type legend, highlighted source, and a table of **character ranges**, labels, and confidence. Range ends are excluded. Confidence describes content type, not maliciousness.
 
-Text tinting is automatic in an interactive terminal. `NO_COLOR` disables automatic text tinting; `TYPESEG_COLOR=always` or `TYPESEG_COLOR=never` overrides it. The CLI also uses ANSI formatting for its legend and table.
+Color is automatic in an interactive terminal. `NO_COLOR` disables color, and `TYPESEG_COLOR=always` or `TYPESEG_COLOR=never` overrides it across the output. Terminal controls in the input appear as visible escape text, such as `\x1b`.
 
 For structured results and configurable post-processing, use the [Python API](../../getting-started/quick-start/). For the package reference, see [TypeSeg on PyPI](https://pypi.org/project/typeseg/).

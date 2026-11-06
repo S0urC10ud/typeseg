@@ -41,12 +41,10 @@ or a Base64 payload pasted into an LLM prompt.
   with natural language — no delimiters or grammars required.
 - **Open-set aware.** Out-of-distribution regions are routed to an auxiliary `other` label instead of
   being misclassified into a known type.
-- **Fast and portable.** GPU when available, but easily installable and quick on CPU. The inference
-  package depends only on `numpy` and `onnxruntime`.
-- **Engineered for runtime.** GPU Mamba runs on a custom CUDA scan kernel (one thread per
-  channel, single launch) that **beats the ONNX `Scan` op by ~100×** and edges out the research JAX
-  `associative_scan` at ~58,000 tok/s. The browser demo reimplements the same model in JavaScript +
-  **WebGPU**, fully client-side at arbitrary input length.
+- **Fast and portable.** The Python package installs NumPy, ONNX Runtime and protobuf
+  for local CPU inference. Optional CUDA acceleration supports both model families.
+- **GPU acceleration.** U-Net reuses CUDA graphs for repeated window shapes, and Mamba
+  uses a custom CuPy CUDA scan. The browser demo runs locally with **WebGPU** support.
 - **Per-character confidence.** Every position carries a confidence score, exposed alongside the
   merged segments.
 
@@ -74,8 +72,8 @@ or a Base64 payload pasted into an LLM prompt.
 pip install typeseg              # CPU: numpy + ONNX Runtime (fast; the default)
 ```
 
-The wheel bundles the general and security models for local CPU inference at
-arbitrary input length. No API key or model download at first use is needed.
+The wheel bundles the general and security models for local CPU inference.
+No API key or model download at first use is needed.
 Start on CPU; use `typeseg.fast(text)` for lower latency and
 `typeseg.precise(text)` for long-context segmentation.
 On Intel Macs, use Python 3.9–3.13 for ONNX Runtime compatibility.
@@ -112,7 +110,7 @@ for seg in result.segments:
 #   35-46   javascript_typescript  conf=0.87   "alert('x');"
 ```
 
-The bundled `examples/segcat.py` renders the result in the terminal:
+The installed `typeseg` command renders segments in the terminal. Try `typeseg --demo`.
 
 <p align="center">
   <img src="./images/typeseg-example.png" alt="typeseg segmenting a mixed CSS/JS/HTML/SQL/shell input in the terminal" width="760">
@@ -184,9 +182,8 @@ is documented in [`packages/typeseg/README.md`](packages/typeseg/README.md#post-
 A fully client-side viewer runs the Mamba model **directly in your browser** — no server, no upload,
 no ONNX runtime: **[typeseg.martin-dallinger.me](https://typeseg.martin-dallinger.me)**. The model is
 reimplemented from scratch in JavaScript, with the heavy dense projections **offloaded to WebGPU** (a
-custom WGSL matmul) and the selective-scan recurrence streamed over the full input. It runs at
-**arbitrary input length entirely on the client GPU** — the same variable-length segmentation as the
-Python package, with zero backend.
+custom WGSL matmul) and the selective-scan recurrence streamed over the input. See the
+[web demo guide](https://typeseg.martin-dallinger.me/introduction/web-demo/) for the hosted demo's input limit.
 
 ## Supported content types
 
@@ -211,7 +208,7 @@ redirected to a dedicated placeholder so the model can still react to them.
 | | `precise()` — **Mamba** *(recommended)* | `fast()` — **U-Net** |
 |---|---|---|
 | Architecture | Bidirectional selective state-space (Mamba) | 1D U-Net over character tokens |
-| Context | Long-context, arbitrary length | Fixed window (1536), sliding |
+| Context | Long context, with memory use that grows with input size | Fixed window (1536), sliding |
 | Output | Piecewise-constant | Piecewise-constant |
 | Strongest on | Highest quality; heavily segmented / long-context inputs | Throughput; near-pure host windows |
 | Trade-off | Best quality; lower throughput (GPU recommended) | Fastest; weaker on far-reaching dependencies |
@@ -227,8 +224,9 @@ files spanning 35 content types. Dense F₁ scores non-whitespace character labe
 type by its character count within a file, and then averages the file scores. Mamba has the stronger
 label score near type changes; U-Net is faster. [Evaluation details](https://typeseg.martin-dallinger.me/security/performance/).
 
-**Reference model throughput** (the paper’s JAX/Flax research implementation, using 100,000-character
-inputs after model loading and initial compilation; distinct input characters/s):
+**Model speed before post-processing.** The paper times the warmed JAX/Flax labeling
+path on 100,000-character inputs. The U-Net timer includes overlapping-window
+inference and merging. Rates count each input character once.
 
 | Model | GPU (notebook-class) | CPU |
 |---|---:|---:|
@@ -237,20 +235,21 @@ inputs after model loading and initial compilation; distinct input characters/s)
 
 The research U-Net comfortably clears the design criterion of 100,000 characters per second.
 
-**`typeseg` package throughput.** The pip package is a dependency-light deployment wrapper
-(numpy/ONNX/CuPy inference + sliding-window tiling + character-level post-processing), so it runs
-at different rates from the research implementation above. Measured end-to-end, warm (a laptop RTX 5070 for GPU):
+**Package speed with post-processing.** A complete `typeseg` call also applies
+label post-processing and builds the result with segments, confidence scores, and
+probabilities. These earlier measurements time the warm 0.3.0 package end to end,
+using an RTX 5070 laptop GPU for the CUDA column.
 
 | Entry point | CPU (onnxruntime) | GPU (`typeseg[gpu]`) | Notes |
 |---|---:|---:|---|
 | `fast()` — U-Net | ~75,000 chars/s | ~140,000 chars/s | piecewise-constant; clears the 100k criterion on GPU |
-| `precise()` — Mamba | ~2,000 chars/s | ~25,000–35,000 chars/s | raw model ~58,000 tok/s (see below) |
+| `precise()` — Mamba | ~2,000 chars/s | ~25,000–35,000 chars/s | full segmentation result |
 
 The CPU Mamba measurement above uses the original ONNX `Scan` backend. Starting
 with 0.3.1, platform wheels fuse that scan into a compiled CPU kernel and use SIMD
 where supported. The model weights are unchanged.
 
-The GPU figures above describe 0.3.0. Version 0.3.1 uses
+Starting with 0.3.1, the CUDA package uses
 **ONNX CUDA graphs for U-Net** and a **CuPy CUDA scan for Mamba** with
 16 threads cooperating on each channel. The existing model weights and FP32
 arithmetic are retained. CUDA graph buffers are cached by model and input shape,

@@ -131,9 +131,9 @@ decision from the whole file down to individual character spans. See the
 
 ### Backends
 
-`pip install typeseg` installs the CPU runtime for both models at arbitrary input
-length. The GPU setup below enables CUDA backends with the same API and model
-weights. A pure-numpy
+`pip install typeseg` installs the CPU runtime for both model families. General
+Mamba uses full-file context, so memory use grows with input size. The GPU setup
+below enables CUDA backends with the same API and model weights. A pure-numpy
 fallback still ships in the box and runs whenever onnxruntime is unavailable or
 `TYPESEG_BACKEND=numpy` is set. Inspect the active backend:
 
@@ -236,8 +236,8 @@ typeseg.backend_info()
 #  'precise_providers': ['CuPyCUDA:NVIDIA GeForce RTX 5070 Laptop GPU']}
 
 text = "<div>hi</div>\n.btn { color: red; }\nalert('x');"
-typeseg.fast(text)      # U-Net on onnxruntime-gpu  (~140k chars/s)
-typeseg.precise(text)   # Mamba on the CuPy scan    (~58k tokens/s raw forward)
+typeseg.fast(text)      # U-Net on ONNX Runtime CUDA
+typeseg.precise(text)   # Mamba on the CuPy CUDA scan
 ```
 
 To make GPU mandatory (raise instead of silently using CPU), set

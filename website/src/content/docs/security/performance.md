@@ -4,7 +4,7 @@ description: CPU throughput, model quality, and security results from the TypeSe
 ---
 ## Throughput
 
-The paper benchmarks the JAX/Flax research implementation on **100,000-character inputs**, using an **AMD Ryzen AI 7 350** notebook and an **NVIDIA RTX 5070 laptop GPU (85 W)**. The model is already loaded and its first compilation is complete when timing starts. Rates count each input character once, including the work of processing overlapping windows.
+**Model speed before post-processing.** The paper benchmarks the warmed JAX/Flax labeling path on **100,000-character inputs**, using an **AMD Ryzen AI 7 350** notebook and an **NVIDIA RTX 5070 laptop GPU (85 W)**. The model is loaded and compiled before timing starts. Rates count each input character once and include processing and merging overlapping windows.
 
 | Model | CPU characters/s | GPU characters/s |
 | --- | ---: | ---: |
@@ -13,7 +13,7 @@ The paper benchmarks the JAX/Flax research implementation on **100,000-character
 
 **CPU core and thread count: not reported.** The paper does not specify how many CPU cores or threads were used for this run. Treat the CPU rate as a result for this laptop and research implementation; a per-core rate would need a benchmark with an explicit core and thread limit.
 
-These are the paper’s research implementation rates (Table 3). The installed Python package and browser demo use different implementations. The [research benchmark timer](https://github.com/S0urC10ud/semantic-text-segmentation/blob/main/evaluation/evaluation.py#L4444) measures model labeling; file decoding, character-label post-processing, and building the final segments are outside that timer. Measure a complete package call on your own files when estimating application throughput.
+**Package speed with post-processing.** The installed Python API uses ONNX Runtime or CuPy for inference. A complete call also applies character-label post-processing and returns segments, confidence scores, and probabilities. Table 3 and its research timer measure labeling before those steps. [Research timer](https://github.com/S0urC10ud/typeseg/blob/main/evaluation/evaluation.py#L4444) · [Package benchmarks](https://github.com/S0urC10ud/typeseg#benchmarks)
 
 TypeSeg reads the text it segments, so work grows with input length. Select textual inputs before running it. A tool such as Magika can identify a file’s overall type from a small sample.
 
